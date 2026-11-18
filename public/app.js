@@ -302,7 +302,10 @@ function scheduleLiveRender() {
     L.node.innerHTML = '';
     if (L.thinking) L.node.append(thinkingNode(L.thinking, !L.text));
     // Hide raw tool-call JSON that text-protocol models stream before it is parsed.
-    const shown = L.text.replace(/```(?:tool|tool_call)[\s\S]*$/, '').replace(/<tool_call>[\s\S]*$/, '');
+    const shown = L.text
+      .replace(/```(?:tool|tool_call)[\s\S]*$/, '')
+      .replace(/```(?:json)?[ \t]*\r?\n\s*[{[]\s*"(?:name|function)"[\s\S]*$/, '')
+      .replace(/<tool_call>[\s\S]*$/, '');
     if (shown.trim()) {
       const body = el('div', 'md cursor', md(shown));
       L.node.append(body);

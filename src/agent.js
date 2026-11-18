@@ -50,6 +50,33 @@ function fitContext(messages, numCtx, systemLen) {
   return out;
 }
 
+// Drop consecutive repeats of the same assistant action (and their results) so a model that got
+// stuck in a loop doesn't keep seeing, and copying, a wall of identical calls.
+export function dedupeHistory(messages) {
+  const out = [];
+  let lastSig = null;
+  let skipping = false;
+  for (const m of messages) {
+    const isResult = m.role === 'tool' || m.fromTool;
+    if (m.role === 'assistant') {
+      const sig = m.tool_calls?.length ? JSON.stringify(m.tool_calls.map((c) => c.function)) : (m.content || '').trim();
+      if (sig && sig === lastSig) {
+        skipping = true;
+        continue;
+      }
+      lastSig = sig;
+      skipping = false;
+    } else if (isResult) {
+      if (skipping) continue;
+    } else {
+      lastSig = null;
+      skipping = false;
+    }
+    out.push(m);
+  }
+  return out;
+}
+
 export class Agent {
   constructor(store, config) {
     this.store = store;
@@ -109,11 +136,14 @@ export class Agent {
     let textMode = info?.capabilities ? !info.capabilities.includes('tools') : false;
     if (textMode) emit({ type: 'notice', text: `${session.model} has no native tool calling, so tools are described in the prompt instead. Results may be less reliable.` }, false);
     const numCtx = Math.min(session.numCtx || this.config.defaultNumCtx, info?.contextLength || Infinity);
+    const seen = new Map();
+    let blockedInARow = 0;
+    let warnedSlow = false;
 
     for (let iter = 0; iter < this.config.maxIterations; iter++) {
       if (signal.aborted) throw new Error('aborted');
       const system = buildSystemPrompt(session, textMode);
-      const history = fitContext(session.messages, numCtx, system.length).map(({ fromTool, ...m }) => m);
+      const history = fitContext(dedupeHistory(session.messages), numCtx, system.length).map(({ fromTool, ...m }) => m);
       const body = {
         model: session.model,
         messages: [{ role: 'system', content: system }, ...history],
@@ -167,6 +197,10 @@ export class Agent {
       if (stats) {
         const tps = stats.eval_duration ? (stats.eval_count / (stats.eval_duration / 1e9)) : 0;
         emit({ type: 'usage', contextTokens: (stats.prompt_eval_count || 0) + (stats.eval_count || 0), numCtx, tokensPerSec: Math.round(tps * 10) / 10 }, false);
+        if (!warnedSlow && tps > 0 && tps < 5 && (stats.eval_count || 0) > 20) {
+          warnedSlow = true;
+          emit({ type: 'notice', text: `Generation is slow (${tps.toFixed(1)} tokens/sec). The model plus its ${Math.round(numCtx / 1024)}k context probably doesn't fit in GPU memory, so it's running partly on the CPU. Pick a smaller context (16k) in the header, or a smaller model.` });
+        }
       }
 
       if (!calls.length) return;
@@ -175,6 +209,24 @@ export class Agent {
         if (signal.aborted) throw new Error('aborted');
         const id = crypto.randomUUID();
         emit({ type: 'tool_call', id, name: call.name, args: call.args });
+
+        // Loop guard: refuse the same call (same tool + same arguments) a third time in one turn.
+        const sig = call.name + JSON.stringify(call.args);
+        const count = (seen.get(sig) || 0) + 1;
+        seen.set(sig, count);
+        if (count >= 3) {
+          blockedInARow++;
+          const msg = `Blocked: you already made this exact ${call.name} call ${count - 1} times this turn and got the same result. Repeating it will not help. Do something different, re-read the user's latest message, or give your final answer.`;
+          emit({ type: 'tool_result', id, output: msg, error: true });
+          if (call.native && !textMode) session.messages.push({ role: 'tool', content: msg, tool_name: call.name });
+          else session.messages.push({ role: 'user', content: `[result of ${call.name}]\n${msg}`, fromTool: true });
+          if (blockedInARow >= 3) {
+            emit({ type: 'notice', text: 'Stopped: the model kept repeating the same action. Rephrase the request, start a new session, or try a larger model.' });
+            return;
+          }
+          continue;
+        }
+        blockedInARow = 0;
 
         let decision = 'allow';
         if (needsApproval(session, call.name)) {

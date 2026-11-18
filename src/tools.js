@@ -12,6 +12,7 @@ const IGNORE_DIRS = new Set([
   '__pycache__', '.venv', 'venv', '.cache', 'coverage', 'target', '.idea', '.vs', '.gradle',
 ]);
 const MAX_OUTPUT = 30000;
+const LOCKFILES = new Set(['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb', 'Cargo.lock', 'poetry.lock', 'composer.lock', 'Gemfile.lock', 'go.sum']);
 
 const fn = (name, description, properties, required = []) => ({
   type: 'function',
@@ -48,7 +49,7 @@ export const TOOL_DEFS = [
     include: str('Only search files matching this glob, e.g. "*.js" or "**/*.{ts,tsx}"'),
     ignore_case: { type: 'boolean', description: 'Case-insensitive search' },
   }, ['pattern']),
-  fn('bash', `Run a shell command in the working directory using ${SHELL_NAME}. Use it for builds, tests, git and package managers. Output is truncated to ${MAX_OUTPUT} characters. Do not start interactive programs or servers that never exit.`, {
+  fn('bash', `Run a shell command in the working directory using ${SHELL_NAME}${IS_WIN ? ' (PowerShell syntax, NOT bash: use Test-Path, Get-ChildItem, Select-String)' : ''}. Use it for builds, tests, git and package managers. Output is truncated to ${MAX_OUTPUT} characters. Do not start interactive programs or servers that never exit.`, {
     command: str('The command to run'),
     timeout_ms: { type: 'integer', description: 'Timeout in milliseconds (default 120000, max 600000)' },
   }, ['command']),
@@ -76,6 +77,27 @@ export const EDIT_TOOLS = new Set(['write_file', 'edit_file']);
 function resolvePath(cwd, p) {
   if (!p || p === '.') return cwd;
   return path.resolve(cwd, String(p));
+}
+
+// When a Windows path isn't found, look for the same path on other drives (users often say "on d" etc.).
+function otherDriveHint(abs) {
+  if (!IS_WIN || !/^[a-zA-Z]:\\/.test(abs)) return '';
+  const rest = abs.slice(2);
+  const found = [];
+  // People often leave out "Users" ("d sasha documents repos" means D:\Users\sasha\Documents\Repos).
+  const rests = /^\\users\\/i.test(rest) ? [rest] : [rest, `\\Users${rest}`];
+  for (let c = 67; c <= 90; c++) {
+    const letter = String.fromCharCode(c);
+    for (const r of rests) {
+      const alt = `${letter}:${r}`;
+      if (alt.toLowerCase() !== abs.toLowerCase() && fs.existsSync(alt)) found.push(alt);
+    }
+  }
+  return found.length ? ` A matching path exists: ${found.join(', ')}. Use that path instead.` : ' Check the drive letter and spelling; use list_dir on the parent folder to see what exists.';
+}
+
+function notFound(kind, abs) {
+  return new Error(`${kind} not found: ${abs}.${otherDriveHint(abs)}`);
 }
 
 function rel(cwd, p) {
@@ -157,7 +179,7 @@ async function walk(root, onFile, max = 100000) {
 async function readFile({ path: p, offset, limit }, { cwd }) {
   const file = resolvePath(cwd, p);
   const stat = await fsp.stat(file).catch(() => null);
-  if (!stat) throw new Error(`File not found: ${file}`);
+  if (!stat) throw notFound('File', file);
   if (stat.isDirectory()) throw new Error(`${file} is a directory. Use list_dir instead.`);
   if (stat.size > 10 * 1024 * 1024) throw new Error('File is larger than 10MB.');
   const buf = await fsp.readFile(file);
@@ -214,6 +236,7 @@ async function editFile({ path: p, old_string, new_string, replace_all }, { cwd 
 
 async function listDir({ path: p }, { cwd }) {
   const dir = resolvePath(cwd, p);
+  if (!fs.existsSync(dir)) throw notFound('Directory', dir);
   const entries = await fsp.readdir(dir, { withFileTypes: true });
   entries.sort((a, b) => (b.isDirectory() - a.isDirectory()) || a.name.localeCompare(b.name));
   const lines = entries.slice(0, 500).map((e) => (e.isDirectory() ? `${e.name}/` : e.name));
@@ -223,6 +246,7 @@ async function listDir({ path: p }, { cwd }) {
 
 async function globTool({ pattern, path: p }, { cwd }) {
   const root = resolvePath(cwd, p);
+  if (!fs.existsSync(root)) throw notFound('Directory', root);
   const match = globMatcher(String(pattern));
   const hits = [];
   await walk(root, async (full) => {
@@ -265,10 +289,11 @@ async function grepTool({ pattern, path: p, include, ignore_case }, { cwd }) {
     }
   };
   const st = await fsp.stat(target).catch(() => null);
-  if (!st) throw new Error(`Path not found: ${target}`);
+  if (!st) throw notFound('Path', target);
   if (st.isFile()) await searchFile(target);
   else
     await walk(target, (full) => {
+      if (LOCKFILES.has(path.basename(full)) || /\.min\.(js|css)$/.test(full)) return; // generated noise
       if (filter && !filter(path.relative(target, full).split(path.sep).join('/'))) return;
       return searchFile(full);
     });
@@ -322,7 +347,11 @@ function bashTool({ command, timeout_ms }, { cwd, signal }) {
       clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
       const head = killed ? `[${killed}]` : `[exit code ${code}]`;
-      resolve({ output: `${head}\n${truncate(output.trimEnd()) || '(no output)'}`, error: !!killed || code !== 0 });
+      let hint = '';
+      if (IS_WIN && code !== 0 && /ParserError|Missing '\(' after 'if'|Unexpected token|is not recognized as/i.test(output)) {
+        hint = '\n\nHint: commands run in Windows PowerShell, not bash. Use PowerShell syntax, e.g. Test-Path "D:\\dir", Get-ChildItem -Recurse, if (Test-Path x) { ... }. For listing or finding files, prefer the list_dir and glob tools.';
+      }
+      resolve({ output: `${head}\n${truncate(output.trimEnd()) || '(no output)'}${hint}`, error: !!killed || code !== 0 });
     });
   });
 }
@@ -331,12 +360,16 @@ async function todoWrite({ todos }, { session, emit }) {
   let list = todos;
   if (typeof list === 'string') list = JSON.parse(list);
   if (!Array.isArray(list)) throw new Error('todos must be an array');
-  session.todos = list
+  const next = list
     .map((t) => ({
       content: String(t.content ?? t.task ?? t.title ?? ''),
       status: ['pending', 'in_progress', 'completed'].includes(t.status) ? t.status : 'pending',
     }))
     .filter((t) => t.content);
+  if (JSON.stringify(next) === JSON.stringify(session.todos || [])) {
+    return { output: 'The task list is unchanged. Do not call todo_write again until a task changes status. Continue with the actual work (or give your final answer if everything is done).', error: true };
+  }
+  session.todos = next;
   emit({ type: 'todos', todos: session.todos });
   const done = session.todos.filter((t) => t.status === 'completed').length;
   return { output: `Task list updated (${done}/${session.todos.length} completed).` };

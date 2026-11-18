@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [1.0.0] - 2026-11-17
+## [1.0.0] - 2026-11-18
 
 First public release.
 
@@ -21,6 +21,8 @@ First public release.
 - Stop button and Esc key; **Clear** button and `/clear` command.
 - Per-session model and context window (8k to 128k) selection, limited to the model's trained context.
 - Automatic context management: older tool output is shortened, then the oldest messages are dropped.
+- Protection against small-model loops: a third identical tool call in a turn is blocked, three blocked calls in a row end the turn, an unchanged task list is rejected, and repeated actions are collapsed from the history the model sees.
+- Helpful errors for local models: "not found" on Windows suggests the same path on other drives or under `\Users\`, bash syntax run in PowerShell gets a hint, and a notice appears when generation is very slow because the model and context don't fit in GPU memory.
 - Native tool calling where the model supports it, recovery of tool calls written as text, and a text-based tool protocol for models without tool support.
 - Project instruction files: `OLLAMA.md`, `CLAUDE.md` and `AGENTS.md` in the project folder, and `~/.ollama-code/MEMORY.md` for all projects.
 - System check (`ollama-code doctor` and in the app) covering Node.js, memory, GPU, disk, Ollama and models, with a hardware-based model recommendation (`qwen2.5-coder` 1.5b to 32b) and in-app model download with progress.

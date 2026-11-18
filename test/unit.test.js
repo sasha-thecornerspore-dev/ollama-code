@@ -62,6 +62,33 @@ test('model recommendation follows hardware', async () => {
   assert.equal(recommendModel({ ...base, ramGB: 16, gpus: [{ vramGB: 4, approximate: true }] }).model, 'qwen2.5-coder:7b');
 });
 
+test('dedupeHistory collapses repeated identical actions', async () => {
+  const { dedupeHistory } = await import('../src/agent.js');
+  const call = { role: 'assistant', content: '', tool_calls: [{ function: { name: 'todo_write', arguments: { todos: [] } } }] };
+  const res = { role: 'tool', content: 'ok', tool_name: 'todo_write' };
+  const msgs = [{ role: 'user', content: 'go' }, call, res, call, res, call, res, { role: 'user', content: 'stop looping' }, call, res];
+  const out = dedupeHistory(msgs);
+  assert.equal(out.length, 6);
+  assert.equal(out[3].content, 'stop looping');
+});
+
+test('todo_write rejects an unchanged list', async () => {
+  const session = { todos: [] };
+  const ctx = { session, emit: () => {} };
+  const todos = [{ content: 'a', status: 'pending' }];
+  assert.ok(!(await runTool('todo_write', { todos }, ctx)).error);
+  assert.ok((await runTool('todo_write', { todos }, ctx)).error);
+});
+
+test('missing Windows path suggests other drives', { skip: process.platform !== 'win32' }, async () => {
+  const cwd = process.cwd();
+  const other = cwd[0].toUpperCase() === 'C' ? null : `C${cwd.slice(1)}`;
+  if (!other) return;
+  const r = await runTool('list_dir', { path: other }, { cwd });
+  assert.ok(r.error);
+  assert.match(r.output, /A matching path exists/);
+});
+
 test('bash tool runs a command', async () => {
   const r = await runTool('bash', { command: 'echo hello-oc' }, { cwd: os.tmpdir() });
   assert.match(r.output, /exit code 0/);
