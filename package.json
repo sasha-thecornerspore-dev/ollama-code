@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node bin/ollama-code.js start",
     "doctor": "node bin/ollama-code.js doctor",
-    "test": "node --test test/",
+    "test": "node --test",
     "icons": "node tools/make-icons.js",
     "package": "node tools/package.js"
   },

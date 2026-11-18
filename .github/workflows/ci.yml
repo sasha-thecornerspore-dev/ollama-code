@@ -45,7 +45,7 @@ jobs:
           foreach ($f in 'installer/install.ps1','installer/uninstall.ps1') {
             $errs = $null
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f), [ref]$null, [ref]$errs) | Out-Null
-            if ($errs) { $errs | ForEach-Object { Write-Error "$f:$($_.Extent.StartLineNumber) $($_.Message)" }; exit 1 }
+            if ($errs) { $errs | ForEach-Object { Write-Error "${f}:$($_.Extent.StartLineNumber) $($_.Message)" }; exit 1 }
           }
 
   install-linux:
