@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ollama Code</title>
+  <link rel="icon" href="icon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <div class="brand"><img src="icon.svg" alt=""> Ollama Code</div>
+      <button id="new-session" class="primary wide">+ New session</button>
+      <div class="side-label">Sessions</div>
+      <nav id="session-list"></nav>
+      <div class="side-foot">
+        <div id="ollama-status"></div>
+        <button id="open-setup" class="linkish">System check &amp; models</button>
+        <div id="app-version" class="ver"></div>
+      </div>
+    </aside>
+
+    <main id="main">
+      <section id="empty" class="empty">
+        <img src="icon.svg" alt="" class="empty-logo">
+        <h1>Code with a local model</h1>
+        <p>Pick a project folder and an Ollama model. The agent can read, search, edit and run code there, and asks before it changes anything.</p>
+        <div class="row center">
+          <button id="empty-new" class="primary">Start a session</button>
+          <button id="empty-setup">System check</button>
+        </div>
+        <div id="empty-error" class="banner error hidden"></div>
+      </section>
+
+      <section id="chat" class="hidden">
+        <header id="chat-header">
+          <div class="title-wrap">
+            <div id="chat-title" class="chat-title"></div>
+            <div id="chat-cwd" class="chat-cwd mono"></div>
+          </div>
+          <div class="controls">
+            <select id="model-select" title="Model"></select>
+            <select id="ctx-select" title="Context window (num_ctx)">
+              <option value="8192">8k ctx</option>
+              <option value="16384">16k ctx</option>
+              <option value="32768">32k ctx</option>
+              <option value="65536">64k ctx</option>
+              <option value="131072">128k ctx</option>
+            </select>
+            <button id="clear-btn" class="ghost" title="Clear the conversation context">Clear</button>
+          </div>
+        </header>
+
+        <div id="transcript"></div>
+
+        <div id="dock">
+          <div id="todos" class="hidden"></div>
+          <div id="composer">
+            <textarea id="input" rows="1" placeholder="Ask, or describe a change… (Enter to send, Shift+Enter for newline)"></textarea>
+            <div class="composer-bar">
+              <select id="mode-select" title="Permission mode">
+                <option value="ask">Ask before edits &amp; commands</option>
+                <option value="acceptEdits">Auto-accept edits</option>
+                <option value="bypass">Bypass permissions</option>
+              </select>
+              <span id="usage" class="usage"></span>
+              <button id="send-btn" class="primary">Send</button>
+              <button id="stop-btn" class="danger hidden">Stop</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="new-dialog">
+    <form method="dialog" id="new-form">
+      <h2>New session</h2>
+      <label>Project folder
+        <div class="row">
+          <input id="cwd-input" class="mono" placeholder="C:\path\to\project" required>
+          <button type="button" id="browse-btn">Browse…</button>
+        </div>
+      </label>
+      <div id="recent-folders" class="chips"></div>
+      <div id="browser" class="browser hidden">
+        <div class="browser-path mono" id="browser-path"></div>
+        <div class="browser-list" id="browser-list"></div>
+        <div class="row end"><button type="button" id="browser-pick" class="primary">Use this folder</button></div>
+      </div>
+      <label>Model
+        <select id="new-model" required></select>
+      </label>
+      <div id="model-note" class="note"></div>
+      <label>Permissions
+        <select id="new-mode">
+          <option value="ask">Ask before edits &amp; commands</option>
+          <option value="acceptEdits">Auto-accept edits</option>
+          <option value="bypass">Bypass permissions</option>
+        </select>
+      </label>
+      <div id="new-error" class="banner error hidden"></div>
+      <div class="row end">
+        <button type="button" id="new-cancel" class="ghost">Cancel</button>
+        <button type="submit" class="primary">Start</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="setup-dialog">
+    <h2>System check</h2>
+    <p class="note">What this computer has, what Ollama Code needs, and the model that fits your hardware.</p>
+    <div id="checks" class="checks"><div class="note">Checking…</div></div>
+    <div id="setup-actions"></div>
+    <div class="pull-box">
+      <label>Download a model
+        <div class="row">
+          <input id="pull-name" class="mono" placeholder="qwen2.5-coder:7b">
+          <button type="button" id="pull-btn" class="primary">Download</button>
+        </div>
+      </label>
+      <div id="pull-progress" class="progress hidden"><div class="bar"><span></span></div><div class="ptext note"></div></div>
+    </div>
+    <div class="row end">
+      <button type="button" id="recheck-btn">Re-check</button>
+      <button type="button" id="setup-close" class="primary">Done</button>
+    </div>
+  </dialog>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

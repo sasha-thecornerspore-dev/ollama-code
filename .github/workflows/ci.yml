@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm test
+      - name: CLI smoke test
+        run: |
+          node bin/ollama-code.js help
+          node bin/ollama-code.js version
+          node bin/ollama-code.js doctor --json > doctor.json || true
+          node -e "const r=require('./doctor.json'); if(!r.checks||!r.recommendation) process.exit(1); console.log(r.recommendation)"
+        shell: bash
+
+  installers:
+    name: Lint installers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: bash -n
+        run: bash -n installer/install.sh && bash -n installer/uninstall.sh
+      - name: shellcheck
+        run: shellcheck -S warning installer/install.sh installer/uninstall.sh
+      - name: install.sh --check
+        run: bash installer/install.sh --check
+      - name: PowerShell parse check
+        shell: pwsh
+        run: |
+          foreach ($f in 'installer/install.ps1','installer/uninstall.ps1') {
+            $errs = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f), [ref]$null, [ref]$errs) | Out-Null
+            if ($errs) { $errs | ForEach-Object { Write-Error "$f:$($_.Extent.StartLineNumber) $($_.Message)" }; exit 1 }
+          }
+
+  install-linux:
+    name: Full install on Linux (from checkout)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install without Ollama
+        run: bash installer/install.sh --yes --skip-ollama --skip-model --no-launch
+      - name: Launcher works
+        run: |
+          ~/.local/bin/ollama-code version
+          ~/.local/bin/ollama-code doctor || true

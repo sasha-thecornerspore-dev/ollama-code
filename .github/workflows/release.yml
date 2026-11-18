@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v1.0.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  archives:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - id: v
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          PKG="v$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then echo "Tag $TAG does not match package.json $PKG"; exit 1; fi
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+      - run: npm test
+      - run: npm run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: archives
+          path: dist/*
+
+  windows-setup:
+    runs-on: windows-latest
+    needs: archives
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+      - name: Build OllamaCodeSetup.exe
+        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=${{ needs.archives.outputs.version }} installer\windows\OllamaCode.iss'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-setup
+          path: dist/OllamaCodeSetup.exe
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [archives, windows-setup]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd out
+          rm -f SHA256SUMS.txt
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Release notes from CHANGELOG
+        run: |
+          V="${{ needs.archives.outputs.version }}"
+          awk -v v="$V" '$0 ~ "^## \\[" v "\\]" {f=1; next} f && /^## \[/ {exit} f' CHANGELOG.md > notes.md
+          cat >> notes.md <<'EOF'
+
+          ## Install
+
+          **Windows:** download `OllamaCodeSetup.exe` below and run it (the installer is unsigned, so Windows SmartScreen may ask you to click *More info → Run anyway*). Or in PowerShell:
+          ```powershell
+          irm https://raw.githubusercontent.com/${{ github.repository }}/main/installer/install.ps1 | iex
+          ```
+          **macOS / Linux:**
+          ```bash
+          curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/installer/install.sh | bash
+          ```
+          The installer checks your system and installs Node.js, Ollama and a suitable model if they're missing. See [docs/INSTALL.md](https://github.com/${{ github.repository }}/blob/main/docs/INSTALL.md).
+          EOF
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ needs.archives.outputs.version }}"
+          gh release create "$TAG" out/* --title "Ollama Code $TAG" --notes-file notes.md --verify-tag

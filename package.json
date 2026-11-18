@@ -1,0 +1,48 @@
+{
+  "name": "ollama-code",
+  "version": "1.0.0",
+  "description": "A local, Claude-Code-style coding agent app powered by Ollama models",
+  "type": "module",
+  "main": "server.js",
+  "bin": {
+    "ollama-code": "bin/ollama-code.js"
+  },
+  "scripts": {
+    "start": "node bin/ollama-code.js start",
+    "doctor": "node bin/ollama-code.js doctor",
+    "test": "node --test test/",
+    "icons": "node tools/make-icons.js",
+    "package": "node tools/package.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "public/",
+    "installer/",
+    "docs/",
+    "server.js",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "ollama",
+    "llm",
+    "coding-agent",
+    "ai",
+    "local",
+    "agent"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sasha-thecornerspore-dev/ollama-code.git"
+  },
+  "homepage": "https://github.com/sasha-thecornerspore-dev/ollama-code#readme",
+  "bugs": {
+    "url": "https://github.com/sasha-thecornerspore-dev/ollama-code/issues"
+  },
+  "license": "MIT"
+}
