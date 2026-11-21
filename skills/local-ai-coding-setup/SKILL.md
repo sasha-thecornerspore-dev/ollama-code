@@ -63,7 +63,7 @@ Then pick from this table using the budget:
 | 3.5 to 6 GB | `qwen2.5-coder:3b` | ~1.9 GB |
 | under 3.5 GB | `qwen2.5-coder:1.5b` | ~1 GB |
 
-Make sure there is enough free disk space for the download plus 2 GB. These models support native tool calling, which coding agents need. If the user asks for another model, check that its page on ollama.com lists "tools" before recommending it for agent work.
+Make sure there is enough free disk space for the download plus 2 GB. These models are tagged for tool use in Ollama, which coding agents need (Step 4 checks how well that works in practice). If the user asks for another model, check that its page on ollama.com lists "tools" before recommending it for agent work.
 
 **Pick the context size too.** Picking the context size is the most common mistake. A long context needs extra memory on top of the model. If the total doesn't fit on the GPU, Ollama quietly moves part of the work to the CPU and speed falls off a cliff. Base the size on the **headroom**: the memory budget minus the model's download size.
 
